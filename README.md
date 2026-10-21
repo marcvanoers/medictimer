@@ -3,6 +3,18 @@
 A native Android companion for a simple daily routine: medication three times a day,
 blood pressure twice a day, and blood sugar two hours after a logged meal.
 
+## Download for Android
+
+[Download MedicTimer 0.1.0 APK](https://github.com/marcvanoers/medictimer/raw/refs/heads/main/downloads/MedicTimer-0.1.0-debug.apk)
+
+Requires Android 8.0 or newer. This is a debug-signed test build. Open the APK on
+your phone and, if prompted, allow installation from the browser or Files app.
+After installation, configure reminder times and notification permissions in Settings.
+Check reminders on the intended phone before relying on them.
+
+The APK contains no patient records. Its SHA-256 checksum is recorded in
+[downloads/SHA256SUMS](downloads/SHA256SUMS).
+
 ## First version
 
 - Large buttons and readable text, with Today, History, and Settings screens.
