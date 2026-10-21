@@ -16,7 +16,7 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 object Reminders {
-    private const val CHANNEL = "daily-care"
+    internal const val CHANNEL = "daily-care"
     private fun alarm(context: Context, key: String, title: String = "", body: String = "", meal: Long = 0): PendingIntent {
         val intent = Intent(context, ReminderReceiver::class.java).apply {
             action = key
@@ -24,8 +24,16 @@ object Reminders {
         }
         return PendingIntent.getBroadcast(context, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
-    fun notificationsAllowed(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
+    fun notificationAccessAllowed(context: Context): Boolean = NotificationManagerCompat.from(context).areNotificationsEnabled() &&
         (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED)
+
+    fun notificationsAllowed(context: Context): Boolean = notificationAccessAllowed(context) &&
+        context.getSystemService(NotificationManager::class.java).getNotificationChannel(CHANNEL)?.importance != NotificationManager.IMPORTANCE_NONE
+
+    fun ensureChannel(context: Context) {
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL, "Daily care reminders", NotificationManager.IMPORTANCE_HIGH))
+    }
 
     fun exactAllowed(context: Context): Boolean = Build.VERSION.SDK_INT < 31 || context.getSystemService(AlarmManager::class.java).canScheduleExactAlarms()
 
@@ -47,22 +55,47 @@ object Reminders {
 
     fun refresh(context: Context) {
         val settings = Preferences(context)
+        val routine = settings.routine()
         val manager = context.getSystemService(AlarmManager::class.java)
-        val notificationManager = context.getSystemService(NotificationManager::class.java)
-        notificationManager.createNotificationChannel(NotificationChannel(CHANNEL, "Daily care reminders", NotificationManager.IMPORTANCE_HIGH))
+        ensureChannel(context)
         val now = System.currentTimeMillis()
-        for (kind in listOf(Kind.MEDICATION, Kind.PRESSURE)) {
-            settings.times(kind).forEachIndexed { index, time ->
-                val pending = alarm(context, "${kind.name}:$index", if (kind == Kind.MEDICATION) "Time for medication" else "Time to check blood pressure",
-                    if (kind == Kind.MEDICATION) "Open MedicTimer and confirm after taking your medication." else "Take a reading, then open MedicTimer to record it.")
-                manager.cancel(pending)
-                if (settings.enabled) schedule(context, nextDaily(time, now), pending)
+        val previous = settings.scheduledKeys
+        previous.forEach { manager.cancel(alarm(context, it)) }
+        // The original app had no registry of its five fixed daily alarms.
+        repeat(3) { manager.cancel(alarm(context, "MEDICATION:$it")) }
+        repeat(2) { manager.cancel(alarm(context, "PRESSURE:$it")) }
+        val scheduled = mutableSetOf<String>()
+        if (settings.enabled) {
+            routine.medications.forEachIndexed { index, slot ->
+                val key = "MEDICATION:${slot.id}"
+                schedule(context, nextDaily(slot.at(routine), now), alarm(context, key, "Time for medication",
+                    "${slot.title(index)}. Open MedicTimer and confirm after taking your medication."))
+                scheduled.add(key)
+            }
+            routine.pressureTimes.forEachIndexed { index, time ->
+                val key = "PRESSURE:$index"
+                schedule(context, nextDaily(time, now), alarm(context, key, "Time to check blood pressure",
+                    "Take a reading, then open MedicTimer to record it."))
+                scheduled.add(key)
+            }
+            if (routine.glucoseEnabled) Meal.entries.forEach { meal ->
+                val key = "MEAL:${meal.name}"
+                schedule(context, nextDaily(routine.mealTimes[meal.ordinal], now), alarm(context, key,
+                    "Have you eaten ${meal.title.lowercase()}?", "Log your actual meal time in MedicTimer. Blood sugar is due two hours after eating."))
+                scheduled.add(key)
             }
         }
+        previous.filter { it !in scheduled }.forEach { NotificationManagerCompat.from(context).cancel(it, 1) }
+        settings.scheduledKeys = scheduled
         Store(context).use { store ->
             val entries = store.all()
             entries.filter { it.kind == Kind.MEAL }.forEach { cancelMeal(context, it.id, dismiss = false) }
-            if (settings.enabled) pendingMeals(entries).filter { !it.alerted && now - glucoseDue(it.time) < 24 * 60 * 60 * 1000L }.forEach { meal ->
+            if (!settings.enabled || !routine.glucoseEnabled) entries.filter { it.kind == Kind.MEAL }.forEach { cancelMeal(context, it.id) }
+            val todayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            entries.filter { it.kind == Kind.MEAL && it.time >= todayStart }.forEach { entry ->
+                Meal.entries.firstOrNull { it.title == entry.label }?.let { NotificationManagerCompat.from(context).cancel("MEAL:${it.name}", 1) }
+            }
+            if (settings.enabled && routine.glucoseEnabled) pendingMeals(entries).filter { !it.alerted && now - glucoseDue(it.time) < 24 * 60 * 60 * 1000L }.forEach { meal ->
                 schedule(context, maxOf(glucoseDue(meal.time), now + 1000), alarm(context, "meal:${meal.id}",
                     "Time to check blood sugar", "It has been two hours since your ${meal.label.lowercase()}. Record your reading in mmol/L.", meal.id))
             }
@@ -75,13 +108,23 @@ object Reminders {
     fun notify(context: Context, key: String, title: String, body: String, mealId: Long) {
         if (!Preferences(context).enabled || !notificationsAllowed(context)) return
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        val routine = Preferences(context).routine()
         if (key.startsWith("MEDICATION:")) {
-            val slot = key.substringAfter(':').toIntOrNull() ?: return
+            val slotId = key.substringAfter(':')
+            if (routine.medications.none { it.id == slotId }) return
             val dayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val taken = Store(context).use { store -> store.all().any { it.kind == Kind.MEDICATION && it.label == "Dose ${slot + 1}" && it.time >= dayStart } }
+            val taken = Store(context).use { store -> store.all().any { it.kind == Kind.MEDICATION && it.reminderKey == slotId && it.time >= dayStart } }
             if (taken) return
         }
+        if (key.startsWith("PRESSURE:") && key.substringAfter(':').toIntOrNull() !in routine.pressureTimes.indices) return
+        if (key.startsWith("MEAL:")) {
+            if (!routine.glucoseEnabled) return
+            val meal = Meal.entries.firstOrNull { it.name == key.substringAfter(':') } ?: return
+            val dayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
+            if (Store(context).use { store -> store.all().any { it.kind == Kind.MEAL && it.label == meal.title && it.time >= dayStart } }) return
+        }
         if (mealId != 0L) {
+            if (!routine.glucoseEnabled) return
             val eligible = Store(context).use { store -> pendingMeals(store.all()).any { it.id == mealId && !it.alerted } }
             if (!eligible) return
         }

@@ -18,6 +18,7 @@ data class Entry(
     val label: String = "",
     val mealId: Long? = null,
     val alerted: Boolean = false,
+    val reminderKey: String? = null,
 ) {
     fun value(): String = when (kind) {
         Kind.GLUCOSE -> "${decimal(first!!)} mmol/L"

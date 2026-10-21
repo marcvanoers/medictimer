@@ -1,7 +1,5 @@
 package nl.medictimer
 
-import android.Manifest
-import android.app.TimePickerDialog
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
@@ -41,8 +39,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private val Green = Color(0xFF165C4B)
-private val WarmWhite = Color(0xFFF7F8F3)
+internal val Green = Color(0xFF165C4B)
+internal val WarmWhite = Color(0xFFF7F8F3)
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -64,6 +62,7 @@ private fun MedicTimer() {
     val store = remember { Store(context) }
     val settings = remember { Preferences(context) }
     var entries by remember { mutableStateOf(store.all()) }
+    var showSetup by rememberSaveable { mutableStateOf(!settings.setupComplete) }
     var screen by rememberSaveable { mutableStateOf("Today") }
     var add by remember { mutableStateOf<Kind?>(null) }
     var edit by remember { mutableStateOf<Entry?>(null) }
@@ -76,6 +75,7 @@ private fun MedicTimer() {
     var exportPeriod by rememberSaveable { mutableStateOf("") }
     var exporting by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val routine = remember(revision) { settings.routine() }
     val lifecycle = LocalLifecycleOwner.current
     fun refresh() { entries = store.all(); Reminders.refresh(context); revision++ }
     DisposableEffect(lifecycle) {
@@ -100,10 +100,18 @@ private fun MedicTimer() {
             }
         }
     }
-    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        settings.enabled = granted
-        refresh()
-        if (!granted) message = "Notifications are off. You can still record everything; enable notifications in Android Settings for reminders."
+    val enableReminders = rememberEnableReminders(settings, onChanged = { refresh() }, onMessage = { message = it })
+    if (showSetup) {
+        val firstUse = !settings.setupComplete
+        SetupWizard(routine, firstUse, onCancel = { showSetup = false }, onFinish = { updated, enable ->
+            settings.saveRoutine(updated)
+            if (enable == false) settings.enabled = false
+            showSetup = false
+            screen = if (firstUse) "Today" else "Settings"
+            refresh()
+            if (enable == true) enableReminders()
+        })
+        return
     }
     Surface(Modifier.fillMaxSize().safeDrawingPadding(), color = WarmWhite) {
         Column {
@@ -127,30 +135,37 @@ private fun MedicTimer() {
                             Text("Reminders may be delayed. Enable precise reminders in Settings.", color = Color(0xFF8A3E17))
                         }
                         Text("Today’s care", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        CareCard("I’ve eaten", "Tap after a meal. Blood sugar is due two hours later.") {
-                            BigButton("Log a meal", onClick = { mealPicker = true })
-                        }
-                        val pending = pendingMeals(entries).filter { now - it.time < 24 * 60 * 60 * 1000L }
-                        pending.forEach { meal ->
-                            val due = glucoseDue(meal.time)
-                            CareCard(if (due <= now) "Blood sugar is due" else "Blood sugar reminder", "${meal.label} at ${stamp(meal.time, "HH:mm")} · check at ${stamp(due, "HH:mm")}") {
-                                if (due <= now) BigButton("Record blood sugar", onClick = { edit = Entry(kind = Kind.GLUCOSE, mealId = meal.id); add = Kind.GLUCOSE })
+                        val pending = if (routine.glucoseEnabled) pendingMeals(entries).filter { now - it.time < 24 * 60 * 60 * 1000L } else emptyList()
+                        if (routine.glucoseEnabled) {
+                            CareCard("I’ve eaten", "Log when you actually eat. Blood sugar is due two hours later.") {
+                                BigButton("Log a meal", onClick = { mealPicker = true })
+                            }
+                            pending.forEach { meal ->
+                                val due = glucoseDue(meal.time)
+                                CareCard(if (due <= now) "Blood sugar is due" else "Blood sugar reminder", "${meal.label} at ${stamp(meal.time, "HH:mm")} · check at ${stamp(due, "HH:mm")}") {
+                                    if (due <= now) BigButton("Record blood sugar", onClick = { edit = Entry(kind = Kind.GLUCOSE, mealId = meal.id); add = Kind.GLUCOSE })
+                                }
+                            }
+                            CareCard("Blood sugar", "${today.count { it.kind == Kind.GLUCOSE }} recorded today · mmol/L") {
+                                BigButton("Record blood sugar", onClick = { edit = Entry(kind = Kind.GLUCOSE, mealId = pending.lastOrNull { glucoseDue(it.time) <= now }?.id); add = Kind.GLUCOSE })
                             }
                         }
-                        CareCard("Blood sugar", "${today.count { it.kind == Kind.GLUCOSE }} recorded today · mmol/L") {
-                            BigButton("Record blood sugar", onClick = { edit = Entry(kind = Kind.GLUCOSE, mealId = pending.lastOrNull { glucoseDue(it.time) <= now }?.id); add = Kind.GLUCOSE })
-                        }
-                        CareCard("Blood pressure", "${today.count { it.kind == Kind.PRESSURE }} of 2 daily readings recorded") {
+                        if (routine.pressureTimes.isNotEmpty()) CareCard("Blood pressure", "${today.count { it.kind == Kind.PRESSURE }} of ${routine.pressureTimes.size} daily readings recorded") {
                             BigButton("Record blood pressure", onClick = { edit = null; add = Kind.PRESSURE })
                         }
-                        CareCard("Medication", "Confirm each dose after taking it.") {
-                            settings.times(Kind.MEDICATION).forEachIndexed { index, time ->
-                                val label = "Dose ${index + 1}"
-                                val taken = today.any { it.kind == Kind.MEDICATION && it.label == label }
+                        if (routine.medications.isNotEmpty()) CareCard("Medication", "Confirm each dose after taking it.") {
+                            routine.medications.forEachIndexed { index, slot ->
+                                val label = slot.title(index)
+                                val time = slot.at(routine)
+                                val taken = today.any { it.kind == Kind.MEDICATION && it.reminderKey == slot.id }
                                 BigButton(if (taken) "✓ $label ($time) taken" else "Confirm $label ($time) taken", enabled = !taken, onClick = {
-                                    edit = Entry(kind = Kind.MEDICATION, label = label); add = Kind.MEDICATION
+                                    edit = Entry(kind = Kind.MEDICATION, label = label, reminderKey = slot.id); add = Kind.MEDICATION
                                 })
                             }
+                        }
+                        if (!routine.glucoseEnabled && routine.pressureTimes.isEmpty() && routine.medications.isEmpty()) {
+                            Text("No daily tasks selected. Add the care you need in Settings.")
+                            BigButton("Edit daily routine", onClick = { showSetup = true })
                         }
                         Text("Saved on this phone. Export records regularly to keep a copy.", style = MaterialTheme.typography.bodyMedium)
                     }
@@ -192,28 +207,21 @@ private fun MedicTimer() {
                         }
                     }
                     else -> {
-                        Text("Reminder times", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                        Text("These are starting times. Adjust them to his existing medication and measurement routine.")
-                        listOf(Kind.MEDICATION, Kind.PRESSURE).forEach { kind ->
-                            CareCard(kind.title, if (kind == Kind.MEDICATION) "Three times daily" else "Twice daily") {
-                                settings.times(kind).forEachIndexed { index, time ->
-                                    OutlinedButton(onClick = {
-                                        TimePickerDialog(context, { _, hour, minute -> settings.setTime(kind, index, LocalTime.of(hour, minute)); refresh() }, time.hour, time.minute, true).show()
-                                    }, modifier = Modifier.fillMaxWidth().heightIn(min = 60.dp)) { Text("${index + 1}.  $time  · Change") }
-                                }
+                        Text("Your daily routine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        BigButton("Edit daily routine", onClick = { showSetup = true })
+                        CareCard("Reminder permissions", "Android controls whether reminders can appear and arrive on time.") {
+                            Text(if (Reminders.notificationsAllowed(context)) "Notifications: allowed" else "Notifications: not allowed")
+                            Text(if (Reminders.exactAllowed(context)) "Precise timing: allowed" else "Precise timing: not allowed (reminders may arrive late)")
+                            BigButton(if (settings.enabled && Reminders.notificationsAllowed(context)) "Turn reminders off" else "Enable reminders", onClick = {
+                                if (settings.enabled && Reminders.notificationsAllowed(context)) { settings.enabled = false; refresh() }
+                                else enableReminders()
+                            })
+                            if (Build.VERSION.SDK_INT >= 31 && !Reminders.exactAllowed(context)) {
+                                OutlinedButton(onClick = { context.startActivity(preciseSettingsIntent(context)) }) { Text("Allow precise reminders") }
                             }
+                            OutlinedButton(onClick = { context.startActivity(notificationSettingsIntent(context)) }) { Text("Android notification settings") }
                         }
-                        CareCard("Blood sugar", "Log each meal when it happens. A reminder follows two hours later. Readings use mmol/L.") {}
-                        BigButton(if (settings.enabled && Reminders.notificationsAllowed(context)) "Turn reminders off" else "Enable reminders", onClick = {
-                            if (settings.enabled && Reminders.notificationsAllowed(context)) { settings.enabled = false; refresh() }
-                            else if (Build.VERSION.SDK_INT >= 33 && !Reminders.notificationsAllowed(context)) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
-                            else { settings.enabled = true; refresh(); if (!Reminders.notificationsAllowed(context)) context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }
-                        })
-                        if (Build.VERSION.SDK_INT >= 31 && !Reminders.exactAllowed(context)) {
-                            Text("Allow alarms & reminders so Android can deliver reminders at the scheduled time. Without this, reminders can arrive late.")
-                            OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, Uri.parse("package:${context.packageName}"))) }) { Text("Allow precise reminders") }
-                        }
-                        OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)) }) { Text("Android notification settings") }
+                        RoutineSummary(routine)
                         Text("Storage & privacy", style = MaterialTheme.typography.titleLarge)
                         Text("Records stay on this phone. No account, ads, or internet connection. Uninstalling the app removes its records. PDF exports contain health information; share them only with people you choose.")
                         Text("Reminders use Android notifications and can be affected by silent mode, battery restrictions, or force-stopping the app. Test them on this phone before relying on them.")
@@ -252,7 +260,7 @@ private fun MedicTimer() {
 }
 
 @Composable
-private fun CareCard(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
+internal fun CareCard(title: String, subtitle: String, content: @Composable ColumnScope.() -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = Color.White), modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = Green)
@@ -263,7 +271,7 @@ private fun CareCard(title: String, subtitle: String, content: @Composable Colum
 }
 
 @Composable
-private fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun BigButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
     Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 62.dp), shape = MaterialTheme.shapes.medium,
         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) { Text(label) }
 }

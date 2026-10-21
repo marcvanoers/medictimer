@@ -3,13 +3,23 @@
 ## Verified in the cloud workspace (21 October 2026)
 
 - Debug app and instrumentation APKs build successfully; Android lint passes.
-- All 12 JVM/Robolectric tests pass, with no skipped tests, including the Compose
-  meal → glucose → history flow, SQLite persistence, alarm cancellation, and
-  Android 13+ notification denial.
+- Version 0.2: all 26 JVM/Robolectric tests pass, with no skipped tests, including
+  the six-step wizard, lunch/dinner medication selection, optional readings,
+  changes in frequency, cancelled edits, state restoration, and the Compose
+  meal → glucose → history flow. Permission tests check OS settings intents,
+  approval/denial on return, exact alarm access, and blocked reminder channels.
+- Upgrade tests verify that the v0.1 database retains readings, timestamps, and
+  medication confirmations, and that existing reminder times remain intact.
 - The native PDF instrumentation test passes on an Android 9 / API 28 software
   emulator. Poppler independently parses its output: five pages, all 90 synthetic
   glucose readings and one blood pressure reading, with expected units.
 - The app launches on the API 28 emulator; its Today screen was visually inspected.
+- The version 0.2 wizard was navigated on the API 28 emulator and its meal,
+  medication, blood pressure, blood sugar, and summary screens were inspected.
+- Enable reminders was tapped on the emulator: Android's MedicTimer notification
+  settings opened, and returning to the app enabled reminders after access was
+  checked. Android 12+ exact-alarm permission paths are covered by Robolectric;
+  actual-phone delivery still requires the checks below.
 - The cloud setup script ran successfully twice, reusing installed tools and caches.
 
 The actual phone's notification delivery, accessibility, and file-sharing checks
@@ -41,9 +51,17 @@ to the report writer and are never inserted into the app's actual database.
 The following checks require an Android phone or emulator; do not infer they passed
 from a successful APK build. Test with the father's actual font/display settings.
 
-1. Open on a clean install. No fabricated readings should appear. Deny notification
-   permission; saving meals/readings must still work and the reminder warning must show.
-2. Grant notifications, enable precise reminders, set a medication reminder a few
+1. Open on a clean install. Complete guided setup with medication only at lunch
+   and dinner, no blood pressure tracking, and blood sugar tracking on. Confirm
+   only the selected tasks appear. Reopen and rotate the app; the wizard should
+   stay completed. During unfinished setup, rotation must preserve the current step.
+   Saving without reminders must allow recording data and show the reminder warning.
+2. Tap Enable reminders. Android notification settings must open even after a
+   previous denial, or when OS access is already allowed. Return after allowing
+   access; on Android 12+, check the subsequent Alarms & reminders flow. Deny
+   notification access and verify reminders stay off. Deny exact alarm access and
+   verify the warning about delayed delivery. Check disabled notification channels.
+   Grant notifications, enable precise reminders, set a medication reminder a few
    minutes ahead, lock the screen, and confirm it arrives. Open it, record the dose,
    and verify the button cannot double-record that slot today.
 3. Log breakfast and check its timestamp and due time (+2 hours). Record glucose
@@ -57,7 +75,10 @@ from a successful APK build. Test with the father's actual font/display settings
    graph legends, exact table values, timestamps/time zone, and multi-page pagination.
    Cancel export and test an unwritable destination; the app must remain usable.
 7. Reboot and test the next reminder. Change reminder times/time zone and verify no
-   duplicate alarms. Disable reminders and verify future alarms are cancelled.
+   duplicate alarms. Change frequency, turn individual features off, and verify old
+   daily and meal alarms are cancelled while history is retained. Meal-linked doses
+   must follow edits to their meal time; actual meal logging must still use +2 hours.
+   Disable all reminders and verify future alarms are cancelled.
 8. Increase font size/display scaling and enable TalkBack. Ensure forms, confirmations,
    tabs, and tables remain reachable, readable, and understandable.
 9. Test screen-off delivery under the phone's battery settings. Force-stopping the

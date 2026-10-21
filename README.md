@@ -1,11 +1,11 @@
 # MedicTimer
 
-A native Android companion for a simple daily routine: medication three times a day,
-blood pressure twice a day, and blood sugar two hours after a logged meal.
+A native Android companion with a personal routine for medication, blood pressure,
+and blood sugar two hours after a logged meal.
 
 ## Download for Android
 
-[Download MedicTimer 0.1.0 APK](https://github.com/marcvanoers/medictimer/raw/refs/heads/main/downloads/MedicTimer-0.1.0-debug.apk)
+[Download MedicTimer 0.2.0 APK](https://github.com/marcvanoers/medictimer/raw/refs/heads/main/downloads/MedicTimer-0.2.0-debug.apk)
 
 Requires Android 8.0 or newer. This is a debug-signed test build. Open the APK on
 your phone and, if prompted, allow installation from the browser or Files app.
@@ -15,13 +15,24 @@ Check reminders on the intended phone before relying on them.
 The APK contains no patient records. Its SHA-256 checksum is recorded in
 [downloads/SHA256SUMS](downloads/SHA256SUMS).
 
-## First version
+Updating from 0.1: install 0.2 over the existing app. **Do not uninstall first**;
+your records are retained, and the setup wizard lets you review your routine.
 
+## Features
+
+- Guided setup on first use, and an editable daily routine in Settings.
+- Usual breakfast, lunch, and dinner times, with prompts to log actual meals when
+  blood sugar tracking is enabled.
 - Large buttons and readable text, with Today, History, and Settings screens.
 - One-tap breakfast/lunch/dinner logging with an automatic timestamp.
 - Blood sugar in **mmol/L**, blood pressure in **mmHg**, and optional pulse.
-- Three medication confirmation slots, with configurable daily reminder times.
-- Two configurable blood pressure reminder times and meal-based glucose reminders.
+- Medication with selected meals (for example lunch and dinner only), or at
+  specific times; custom medication and blood pressure schedules support up to
+  twelve daily times. Either feature can be turned off.
+- Optional blood sugar tracking, independent of blood pressure, with a fixed
+  two-hour reminder after each actual logged meal.
+- “Enable reminders” opens Android notification settings automatically, follows
+  with Alarms & reminders on Android 12+ when needed, and checks access on return.
 - Local SQLite records, history editing/deletion, 7-day/30-day/all-time views.
 - Glucose and blood pressure graphs, a horizontally scrollable history table,
   and an Android document-picker PDF export with graphs and complete selected history.
@@ -52,16 +63,28 @@ These helpers keep the SDK, JDK, caches, and Java proxy trust under
 
 ## First use
 
-1. In Settings, adjust the three medication and two blood pressure times to the
-   existing prescribed routine. Defaults are placeholders, not treatment advice.
-2. Enable reminders and grant notification permission. On Android 12+, allow
-   precise reminders under Alarms & reminders if offered. Check that the app's
-   notification channel has sound enabled in Android settings.
+1. Follow the six-step setup: usual meals, medication with meals or specific
+   times, optional blood pressure readings and frequency, and optional blood sugar
+   tracking. Defaults are placeholders, not treatment advice. Existing records
+   and old reminder times are retained when upgrading from 0.1.
+2. Choose Save and enable reminders. Android's notification settings open; allow
+   MedicTimer notifications and return. If needed, Alarms & reminders opens next
+   for precise timing. Declining notification access leaves reminders off;
+   declining precise timing allows Android's inexact fallback with a warning.
+   You may instead save without reminders and enable them later in Settings.
 3. Test a reminder on the actual phone with the screen off. Device power-saving,
    Do Not Disturb, channel settings, and force-stop can affect delivery.
-4. Log a meal when it happens. The glucose reminder is scheduled two hours later;
+4. If blood sugar tracking is enabled, log a meal when it happens. Usual meal times
+   prompt meal logging; they do not fabricate a meal or start a glucose timer.
+   The glucose reminder is scheduled two hours after the actual meal timestamp;
    a glucose reading can be linked to that meal or recorded independently.
 5. Use History → Export PDF for doctor to save a report, then share it using Files.
+
+Edit daily routine in Settings to change these choices. Meal-linked medication
+times follow changes to the usual meal times; medication always needs explicit
+confirmation. Turning a feature off removes its future alarms and Today cards
+while keeping its existing records in History. Setup drafts survive activity
+recreation and only apply when saved; cancelling leaves the routine unchanged.
 
 Reminders restart after reboot and clock/time-zone changes. Without precise-alarm
 permission, Android's inexact alarm fallback can be delayed. Notifications prompt
