@@ -64,7 +64,13 @@ class Preferences(context: Context) {
     private val prefs = context.getSharedPreferences("schedule", Context.MODE_PRIVATE)
     var enabled: Boolean
         get() = prefs.getBoolean("enabled", false)
-        set(value) { prefs.edit().putBoolean("enabled", value).apply() }
+        set(value) { prefs.edit().putBoolean("enabled", value).putBoolean("enable_requested", false).apply() }
+    var enableRequested: Boolean
+        get() = prefs.getBoolean("enable_requested", false)
+        set(value) { prefs.edit().putBoolean("enable_requested", value).apply() }
+    var notificationRequested: Boolean
+        get() = prefs.getBoolean("notification_requested", false)
+        set(value) { prefs.edit().putBoolean("notification_requested", value).apply() }
     val setupComplete: Boolean get() = prefs.getBoolean("setup_complete", false)
 
     fun routine(): Routine {

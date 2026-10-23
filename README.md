@@ -5,7 +5,7 @@ and blood sugar two hours after a logged meal.
 
 ## Download for Android
 
-[Download MedicTimer 0.2.0 APK](https://github.com/marcvanoers/medictimer/raw/refs/heads/main/downloads/MedicTimer-0.2.0-debug.apk)
+[Download MedicTimer 0.2.1 APK](https://github.com/marcvanoers/medictimer/raw/refs/heads/main/downloads/MedicTimer-0.2.1-debug.apk)
 
 Requires Android 8.0 or newer. This is a debug-signed test build. Open the APK on
 your phone and, if prompted, allow installation from the browser or Files app.
@@ -15,7 +15,7 @@ Check reminders on the intended phone before relying on them.
 The APK contains no patient records. Its SHA-256 checksum is recorded in
 [downloads/SHA256SUMS](downloads/SHA256SUMS).
 
-Updating from 0.1: install 0.2 over the existing app. **Do not uninstall first**;
+Updating from 0.1 or 0.2.0: install 0.2.1 over the existing app. **Do not uninstall first**;
 your records are retained, and the setup wizard lets you review your routine.
 
 ## Features
@@ -31,8 +31,9 @@ your records are retained, and the setup wizard lets you review your routine.
   twelve daily times. Either feature can be turned off.
 - Optional blood sugar tracking, independent of blood pressure, with a fixed
   two-hour reminder after each actual logged meal.
-- “Enable reminders” opens Android notification settings automatically, follows
-  with Alarms & reminders on Android 12+ when needed, and checks access on return.
+- “Enable reminders” requests notification permission on Android 13+, opens OS
+  settings for older devices or denied access, and follows with Alarms & reminders
+  on Android 12+ when needed. Settings also includes a test notification.
 - Local SQLite records, history editing/deletion, 7-day/30-day/all-time views.
 - Glucose and blood pressure graphs, a horizontally scrollable history table,
   and an Android document-picker PDF export with graphs and complete selected history.
@@ -67,8 +68,9 @@ These helpers keep the SDK, JDK, caches, and Java proxy trust under
    times, optional blood pressure readings and frequency, and optional blood sugar
    tracking. Defaults are placeholders, not treatment advice. Existing records
    and old reminder times are retained when upgrading from 0.1.
-2. Choose Save and enable reminders. Android's notification settings open; allow
-   MedicTimer notifications and return. If needed, Alarms & reminders opens next
+2. Choose Save and enable reminders. Android 13+ shows a notification permission
+   prompt on first request; older versions and previously denied access use Android
+   notification settings. Allow MedicTimer notifications and return. If needed, Alarms & reminders opens next
    for precise timing. Declining notification access leaves reminders off;
    declining precise timing allows Android's inexact fallback with a warning.
    You may instead save without reminders and enable them later in Settings.
@@ -114,3 +116,22 @@ are declared in `app/build.gradle.kts`. This app currently uses original chart a
 PDF code rather than Vico or a third-party PDF library.
 
 See [manual validation](docs/VALIDATION.md) for the device acceptance checklist.
+
+### Notification troubleshooting
+
+Version 0.2.1 fixes incorrect Android permission names in earlier APKs, which
+prevented Android from recognizing notification, precise-alarm, and reboot
+permissions. Install the update over the existing app to retain records.
+
+
+Android 13 and later require notification permission; Android 8 and later also
+have separate notification channel controls. Android 12 and later can require
+Alarms & reminders access for precise timing. Android 14 normally denies that
+alarm access on fresh installations until the user allows it.
+
+After enabling reminders, tap **Test notification** and check the notification
+panel. Sound follows the phone's channel, volume, and Do Not Disturb settings.
+Settings shows the Android version and API level to help diagnose device-specific
+problems. If the OS notification switch remains grey even after the native
+permission request, report that version and the phone model; the app cannot
+change a disabled OS control itself.

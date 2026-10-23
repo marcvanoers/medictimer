@@ -130,7 +130,7 @@ internal fun SetupWizard(initial: Routine, firstUse: Boolean, onCancel: () -> Un
                     5 -> {
                         Text("Your routine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         RoutineSummary(effective)
-                        if (firstUse) Text("Next, Android’s notification settings will open. Allow notifications and return here. If needed, we’ll then open Alarms & reminders for precise timing.")
+                        if (firstUse) Text("Next, allow notifications in Android’s permission prompt or settings. If needed, we’ll then open Alarms & reminders for precise timing.")
                     }
                 }
                 Spacer(Modifier.height(8.dp))

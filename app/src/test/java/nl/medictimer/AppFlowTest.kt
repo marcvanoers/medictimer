@@ -114,7 +114,7 @@ class AppFlowTest {
             val intent = shadowOf(compose.activity).nextStartedActivityForResult.intent
             assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, intent.action)
             assertEquals("nl.medictimer", intent.getStringExtra(Settings.EXTRA_APP_PACKAGE))
-            assertFalse(Preferences(compose.activity).enabled)
+            assertTrue(Preferences(compose.activity).enabled)
             shadowOf(compose.activity).receiveResult(intent, Activity.RESULT_CANCELED, null)
         }
         compose.runOnIdle { assertTrue(Preferences(compose.activity).enabled) }
@@ -122,7 +122,10 @@ class AppFlowTest {
 
     @Test fun `permission flow checks notification denial when returning from Android settings`() {
         completeDefaultSetup()
-        compose.runOnIdle { shadowOf(ApplicationProvider.getApplicationContext<Application>()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS) }
+        compose.runOnIdle {
+            shadowOf(ApplicationProvider.getApplicationContext<Application>()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            Preferences(compose.activity).notificationRequested = true
+        }
         compose.onNodeWithText("Settings").performClick()
         compose.onNodeWithText("Enable reminders").performScrollTo().performClick()
         compose.runOnIdle {
@@ -153,6 +156,59 @@ class AppFlowTest {
             shadowOf(compose.activity).receiveResult(intent, Activity.RESULT_CANCELED, Intent())
         }
         compose.runOnIdle { assertTrue(Preferences(compose.activity).enabled) }
+    }
+
+    @Test @Config(sdk = [33, 34, 35], qualifiers = "w393dp-h851dp")
+    fun `first enable requests native notification permission and handles approval`() {
+        completeDefaultSetup()
+        compose.runOnIdle {
+            shadowOf(ApplicationProvider.getApplicationContext<Application>()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            ShadowAlarmManager.setCanScheduleExactAlarms(true)
+        }
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Enable reminders").performScrollTo().performClick()
+        compose.runOnIdle {
+            val request = shadowOf(compose.activity).lastRequestedPermission
+            assertArrayEquals(arrayOf(Manifest.permission.POST_NOTIFICATIONS), request.requestedPermissions)
+            assertNoSettingsOpened()
+            shadowOf(ApplicationProvider.getApplicationContext<Application>()).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+            compose.activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                intArrayOf(android.content.pm.PackageManager.PERMISSION_GRANTED))
+        }
+        compose.runOnIdle {
+            assertTrue(Preferences(compose.activity).enabled)
+            assertFalse(Preferences(compose.activity).enableRequested)
+        }
+    }
+
+    @Test fun `native permission denial leaves reminders off without opening settings`() {
+        completeDefaultSetup()
+        compose.runOnIdle {
+            shadowOf(ApplicationProvider.getApplicationContext<Application>()).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        compose.onNodeWithText("Settings").performClick()
+        compose.onNodeWithText("Enable reminders").performScrollTo().performClick()
+        compose.runOnIdle {
+            val request = shadowOf(compose.activity).lastRequestedPermission
+            compose.activity.onRequestPermissionsResult(request.requestCode, request.requestedPermissions,
+                intArrayOf(android.content.pm.PackageManager.PERMISSION_DENIED))
+        }
+        compose.runOnIdle {
+            assertFalse(Preferences(compose.activity).enabled)
+            assertFalse(Preferences(compose.activity).enableRequested)
+            assertTrue(Preferences(compose.activity).notificationRequested)
+            assertNoSettingsOpened()
+        }
+    }
+
+    private fun assertNoSettingsOpened() {
+        val shadow = shadowOf(compose.activity)
+        while (true) {
+            val started = shadow.nextStartedActivityForResult ?: break
+            assertNotEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, started.intent.action)
+            assertNotEquals(Settings.ACTION_CHANNEL_NOTIFICATION_SETTINGS, started.intent.action)
+            assertNotEquals(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, started.intent.action)
+        }
     }
 
     private fun completeDefaultSetup() {

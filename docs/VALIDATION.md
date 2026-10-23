@@ -26,6 +26,22 @@ The actual phone's notification delivery, accessibility, and file-sharing checks
 below still need to be performed. Software-emulator timings do not establish
 real-phone performance.
 
+## Notification permission update (23 October 2026)
+
+Version 0.2.1 corrects all three manifest permission names to their required
+`android.permission.*` form, and requests native notification permission first on Android 13+,
+retains OS settings fallback, reconciles a pending enable request on app resume,
+and adds a test notification and Android version in Settings. All 34 JVM/Robolectric
+tests pass, Android lint passes, and the rebuilt APK upgrades successfully on API 28.
+The packaged manifest was independently checked with aapt. Automated checks
+cover native prompt approval on API 33/34/35, denial on API 34, settings fallback,
+precise-alarm access, and persisted enable requests on API 33/34/35.
+
+The grey notification switch reported on the actual phone has not been reproduced;
+its model and Android version are still unknown. Automated permission checks do
+not establish that an OEM-disabled switch will become editable, or that alarms
+will arrive under that phone's battery settings.
+
 ## How to validate
 
 Automated tests exercise reading validation, decimal commas, daily schedules
@@ -56,11 +72,13 @@ from a successful APK build. Test with the father's actual font/display settings
    only the selected tasks appear. Reopen and rotate the app; the wizard should
    stay completed. During unfinished setup, rotation must preserve the current step.
    Saving without reminders must allow recording data and show the reminder warning.
-2. Tap Enable reminders. Android notification settings must open even after a
-   previous denial, or when OS access is already allowed. Return after allowing
+2. Tap Enable reminders. On Android 13+, the first request must show the native
+   notification prompt. Denial must leave reminders off. Older versions and
+   denied requests without a rationale use OS settings. Return after allowing
    access; on Android 12+, check the subsequent Alarms & reminders flow. Deny
    notification access and verify reminders stay off. Deny exact alarm access and
    verify the warning about delayed delivery. Check disabled notification channels.
+   Tap Test notification and check the notification panel and sound settings.
    Grant notifications, enable precise reminders, set a medication reminder a few
    minutes ahead, lock the screen, and confirm it arrives. Open it, record the dose,
    and verify the button cannot double-record that slot today.

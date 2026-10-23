@@ -58,6 +58,9 @@ object Reminders {
         val routine = settings.routine()
         val manager = context.getSystemService(AlarmManager::class.java)
         ensureChannel(context)
+        // Some phone Settings apps do not return an activity result. Preserve the user's
+        // enable request and reconcile actual permission when the app resumes.
+        if (settings.enableRequested && notificationsAllowed(context)) settings.enabled = true
         val now = System.currentTimeMillis()
         val previous = settings.scheduledKeys
         previous.forEach { manager.cancel(alarm(context, it)) }
@@ -105,39 +108,47 @@ object Reminders {
     // Lint cannot follow notificationsAllowed's SDK-dependent check. The explicit check and
     // SecurityException handler below cover Android 13+ permission denial and revocation.
     @SuppressLint("MissingPermission", "NotificationPermission")
-    fun notify(context: Context, key: String, title: String, body: String, mealId: Long) {
-        if (!Preferences(context).enabled || !notificationsAllowed(context)) return
-        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+    fun notify(context: Context, key: String, title: String, body: String, mealId: Long): Boolean {
+        if (!Preferences(context).enabled || !notificationsAllowed(context)) return false
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return false
         val routine = Preferences(context).routine()
         if (key.startsWith("MEDICATION:")) {
             val slotId = key.substringAfter(':')
-            if (routine.medications.none { it.id == slotId }) return
+            if (routine.medications.none { it.id == slotId }) return false
             val dayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
             val taken = Store(context).use { store -> store.all().any { it.kind == Kind.MEDICATION && it.reminderKey == slotId && it.time >= dayStart } }
-            if (taken) return
+            if (taken) return false
         }
-        if (key.startsWith("PRESSURE:") && key.substringAfter(':').toIntOrNull() !in routine.pressureTimes.indices) return
+        if (key.startsWith("PRESSURE:") && key.substringAfter(':').toIntOrNull() !in routine.pressureTimes.indices) return false
         if (key.startsWith("MEAL:")) {
-            if (!routine.glucoseEnabled) return
-            val meal = Meal.entries.firstOrNull { it.name == key.substringAfter(':') } ?: return
+            if (!routine.glucoseEnabled) return false
+            val meal = Meal.entries.firstOrNull { it.name == key.substringAfter(':') } ?: return false
             val dayStart = java.time.LocalDate.now().atStartOfDay(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli()
-            if (Store(context).use { store -> store.all().any { it.kind == Kind.MEAL && it.label == meal.title && it.time >= dayStart } }) return
+            if (Store(context).use { store -> store.all().any { it.kind == Kind.MEAL && it.label == meal.title && it.time >= dayStart } }) return false
         }
         if (mealId != 0L) {
-            if (!routine.glucoseEnabled) return
+            if (!routine.glucoseEnabled) return false
             val eligible = Store(context).use { store -> pendingMeals(store.all()).any { it.id == mealId && !it.alerted } }
-            if (!eligible) return
+            if (!eligible) return false
         }
         val open = PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(nl.medictimer.R.drawable.ic_medictimer)
             .setContentTitle(title).setContentText(body).setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setContentIntent(open).setAutoCancel(true).setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_REMINDER)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE).build()
         try {
             NotificationManagerCompat.from(context).notify(key, 1, notification)
             if (mealId != 0L) Store(context).use { it.markAlerted(mealId) }
-        } catch (_: SecurityException) { /* User revoked notification access. */ }
+            return true
+        } catch (_: SecurityException) { return false }
+    }
+
+    fun testNotification(context: Context): Boolean {
+        ensureChannel(context)
+        return notify(context, "TEST", "MedicTimer test notification",
+            "Notifications are working. Sound and vibration follow your Android notification settings.", 0)
     }
 }
 

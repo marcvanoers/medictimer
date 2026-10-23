@@ -116,4 +116,36 @@ class RemindersTest {
             NotificationChannel(Reminders.CHANNEL, "Reminders", NotificationManager.IMPORTANCE_NONE))
         assertEquals(Settings.ACTION_APP_NOTIFICATION_SETTINGS, notificationSettingsIntent(context).action)
     }
+    @Test @Config(sdk = [33, 34, 35])
+    fun `pending enable survives settings and reconciles only after permission is granted`() {
+        val settings = Preferences(context)
+        settings.enableRequested = true
+        val application = shadowOf(ApplicationProvider.getApplicationContext<Application>())
+        application.denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Reminders.refresh(context)
+        assertFalse(settings.enabled)
+        assertTrue(settings.enableRequested)
+        assertFalse(Reminders.testNotification(context))
+        application.grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        Reminders.refresh(context)
+        assertTrue(settings.enabled)
+        assertFalse(settings.enableRequested)
+        assertTrue(Reminders.testNotification(context))
+        assertEquals(1, shadowOf(context.getSystemService(NotificationManager::class.java)).allNotifications.size)
+        settings.enableRequested = true
+        settings.enabled = false
+        Reminders.refresh(context)
+        assertFalse(settings.enabled)
+        assertFalse(settings.enableRequested)
+    }
+
+    @Test @Config(sdk = [33])
+    fun `installed manifest declares real Android notification alarm and reboot permissions`() {
+        val requested = context.packageManager.getPackageInfo(context.packageName,
+            android.content.pm.PackageManager.GET_PERMISSIONS).requestedPermissions.orEmpty().toSet()
+        assertTrue(requested.contains(Manifest.permission.POST_NOTIFICATIONS))
+        assertTrue(requested.contains(Manifest.permission.SCHEDULE_EXACT_ALARM))
+        assertTrue(requested.contains(Manifest.permission.RECEIVE_BOOT_COMPLETED))
+    }
+
 }

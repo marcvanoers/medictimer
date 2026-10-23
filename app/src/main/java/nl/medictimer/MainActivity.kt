@@ -210,6 +210,7 @@ private fun MedicTimer() {
                         Text("Your daily routine", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                         BigButton("Edit daily routine", onClick = { showSetup = true })
                         CareCard("Reminder permissions", "Android controls whether reminders can appear and arrive on time.") {
+                            Text("Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})", style = MaterialTheme.typography.bodyMedium)
                             Text(if (Reminders.notificationsAllowed(context)) "Notifications: allowed" else "Notifications: not allowed")
                             Text(if (Reminders.exactAllowed(context)) "Precise timing: allowed" else "Precise timing: not allowed (reminders may arrive late)")
                             BigButton(if (settings.enabled && Reminders.notificationsAllowed(context)) "Turn reminders off" else "Enable reminders", onClick = {
@@ -220,6 +221,10 @@ private fun MedicTimer() {
                                 OutlinedButton(onClick = { context.startActivity(preciseSettingsIntent(context)) }) { Text("Allow precise reminders") }
                             }
                             OutlinedButton(onClick = { context.startActivity(notificationSettingsIntent(context)) }) { Text("Android notification settings") }
+                            OutlinedButton(onClick = {
+                                message = if (Reminders.testNotification(context)) "Test notification sent. Check your notification panel. Its sound depends on Android’s channel and volume settings."
+                                    else "Enable reminders and allow notification permission first. If Android’s switch stays disabled, the phone may be restricting access."
+                            }) { Text("Test notification") }
                         }
                         RoutineSummary(routine)
                         Text("Storage & privacy", style = MaterialTheme.typography.titleLarge)
